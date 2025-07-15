@@ -39,10 +39,10 @@
     <div id="auth-screen" class="flex items-center justify-center min-h-screen">
         <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
             <h2 id="auth-title" class="text-2xl font-bold text-center text-gray-900">Iniciar Sesión</h2>
-            <div id="auth-error" class="hidden p-3 text-sm text-red-700 bg-red-100 rounded-lg"></div>
+            <div id="auth-message" class="hidden p-3 text-sm rounded-lg"></div>
             <form id="login-form" class="space-y-6">
                 <div>
-                    <label for="email" class="text-sm font-medium text-gray-700">Email</label>
+                    <label for="email" class="text-sm font-medium text-gray-700">Email Corporativo (@ssib.es)</label>
                     <input id="email" name="email" type="email" required class="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
                 <div>
@@ -247,7 +247,8 @@
             createUserWithEmailAndPassword,
             signInWithEmailAndPassword,
             signOut,
-            sendPasswordResetEmail
+            sendPasswordResetEmail,
+            sendEmailVerification
         } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
         import { 
             getFirestore, 
@@ -263,7 +264,6 @@
         } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
         // --- CONFIGURACIÓN DE FIREBASE ---
-        // Claves del proyecto de Firebase insertadas.
         const firebaseConfig = {
             apiKey: "AIzaSyCaFG458QVP5ek9T8w-qqiVzPKF6kz8GXU",
             authDomain: "lista-espera-trasplante-huse.firebaseapp.com",
@@ -275,6 +275,7 @@
         };
 
         const appId = "lista-espera-higado-huse";
+        const ALLOWED_DOMAIN = "@ssib.es";
 
         // Inicializa Firebase
         const app = initializeApp(firebaseConfig);
@@ -289,7 +290,7 @@
         const authScreen = document.getElementById('auth-screen');
         const appScreen = document.getElementById('app-screen');
         const loginForm = document.getElementById('login-form');
-        const authError = document.getElementById('auth-error');
+        const authMessage = document.getElementById('auth-message');
         const logoutBtn = document.getElementById('logout-btn');
         const userEmailDisplay = document.getElementById('user-email-display');
         const toggleAuthModeLink = document.getElementById('toggle-auth-mode-link');
@@ -329,18 +330,37 @@
         let isRegistering = false;
         let unsubscribeFromPatients = null;
         let unsubscribeFromLastUpdate = null;
+        
+        function showAuthMessage(message, isError = true) {
+            authMessage.textContent = message;
+            authMessage.className = 'p-3 text-sm rounded-lg'; // Reset classes
+            if (isError) {
+                authMessage.classList.add('bg-red-100', 'text-red-700');
+            } else {
+                authMessage.classList.add('bg-green-100', 'text-green-700');
+            }
+            authMessage.classList.remove('hidden');
+        }
 
         // --- LÓGICA DE AUTENTICACIÓN Y ARRANQUE ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                // El usuario ha iniciado sesión
-                authScreen.classList.add('hidden');
-                appScreen.classList.remove('hidden');
-                userEmailDisplay.textContent = user.email;
-                if (unsubscribeFromPatients) unsubscribeFromPatients();
-                if (unsubscribeFromLastUpdate) unsubscribeFromLastUpdate();
-                listenToPatients();
-                listenToLastUpdate();
+                if (user.emailVerified) {
+                    // El usuario ha iniciado sesión y está verificado
+                    authScreen.classList.add('hidden');
+                    appScreen.classList.remove('hidden');
+                    userEmailDisplay.textContent = user.email;
+                    if (unsubscribeFromPatients) unsubscribeFromPatients();
+                    if (unsubscribeFromLastUpdate) unsubscribeFromLastUpdate();
+                    listenToPatients();
+                    listenToLastUpdate();
+                } else {
+                    // El usuario ha iniciado sesión pero no está verificado
+                    showAuthMessage('Por favor, verifica tu correo electrónico para continuar. Revisa tu bandeja de entrada (y la carpeta de spam).', false);
+                    authScreen.classList.remove('hidden');
+                    appScreen.classList.add('hidden');
+                    signOut(auth); // Desloguear para forzar un nuevo inicio de sesión tras verificar
+                }
             } else {
                 // El usuario no ha iniciado sesión
                 authScreen.classList.remove('hidden');
@@ -374,23 +394,34 @@
             const email = loginForm.email.value;
             const password = loginForm.password.value;
             
-            authError.classList.add('hidden');
+            authMessage.classList.add('hidden');
 
             try {
                 if (isRegistering) {
-                    const passwordError = validatePassword(password);
-                    if (passwordError) {
-                        authError.textContent = passwordError;
-                        authError.classList.remove('hidden');
+                    // --- Lógica de Registro ---
+                    if (!email.endsWith(ALLOWED_DOMAIN)) {
+                        showAuthMessage(`Solo se permiten correos del dominio ${ALLOWED_DOMAIN}.`);
                         return;
                     }
-                    await createUserWithEmailAndPassword(auth, email, password);
+                    const passwordError = validatePassword(password);
+                    if (passwordError) {
+                        showAuthMessage(passwordError);
+                        return;
+                    }
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    await sendEmailVerification(userCredential.user);
+                    signOut(auth);
+                    showAuthMessage('¡Registro completado! Se ha enviado un enlace a tu correo. Por favor, verifica tu cuenta antes de iniciar sesión.', false);
                 } else {
-                    await signInWithEmailAndPassword(auth, email, password);
+                    // --- Lógica de Inicio de Sesión ---
+                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                    if (!userCredential.user.emailVerified) {
+                        signOut(auth); // Importante para que onAuthStateChanged no lo detecte como logueado
+                        showAuthMessage('Tu cuenta no ha sido verificada. Por favor, revisa tu correo electrónico.');
+                    }
                 }
             } catch (error) {
-                authError.textContent = error.message;
-                authError.classList.remove('hidden');
+                showAuthMessage(error.message);
                 console.error("Auth error:", error);
             }
         });
