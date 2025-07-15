@@ -79,8 +79,8 @@
             <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center flex-wrap">
                 <h1 class="text-2xl font-bold text-gray-900">Pacientes en lista de espera de trasplante hepático HUSE</h1>
                 <div class="flex items-center space-x-4 mt-2 sm:mt-0">
-                    <div class="text-sm text-gray-500">
-                        Última actualización: <span id="last-update-display" class="font-medium text-gray-700">cargando...</span>
+                    <div id="last-update-container" class="hidden text-sm text-gray-500">
+                        Última actualización: <span id="last-update-display" class="font-medium text-gray-700"></span>
                     </div>
                     <div class="text-sm">
                         <span class="font-medium">Usuario:</span>
@@ -296,6 +296,7 @@
         const toggleAuthModeLink = document.getElementById('toggle-auth-mode-link');
         const forgotPasswordLink = document.getElementById('forgot-password-link');
         const passwordRules = document.getElementById('password-rules');
+        const lastUpdateContainer = document.getElementById('last-update-container');
         const lastUpdateDisplay = document.getElementById('last-update-display');
         
         const patientModal = document.getElementById('patient-modal');
@@ -505,9 +506,11 @@
                 } else {
                     lastUpdateDisplay.textContent = 'Nunca';
                 }
+                lastUpdateContainer.classList.remove('hidden');
             }, (error) => {
                 console.error("Error listening to timestamp:", error);
                 lastUpdateDisplay.textContent = 'Error';
+                lastUpdateContainer.classList.remove('hidden');
             });
         }
 
@@ -563,6 +566,17 @@
                 } else {
                     groupPatients.forEach(patient => {
                         const imcDisplay = patient.imc ? parseFloat(patient.imc).toFixed(2) : 'N/A';
+                        
+                        let formattedEntryDate = 'N/A';
+                        if (patient.entryDate) {
+                            const dateParts = patient.entryDate.split('-');
+                            if(dateParts.length === 3) {
+                                formattedEntryDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+                            } else {
+                                formattedEntryDate = patient.entryDate;
+                            }
+                        }
+
                         const row = document.createElement('tr');
                         row.dataset.id = patient.id;
                         row.className = patient.isStandby ? 'standby' : '';
@@ -573,7 +587,7 @@
                             <td class="px-4 py-4 whitespace-nowrap">${patient.rh}</td>
                             <td class="px-4 py-4 whitespace-nowrap">${patient.meld}</td>
                             <td class="px-4 py-4 whitespace-nowrap">${patient.height}cm / ${patient.weight}kg / ${imcDisplay}</td>
-                            <td class="px-4 py-4 whitespace-nowrap">${patient.entryDate}</td>
+                            <td class="px-4 py-4 whitespace-nowrap">${formattedEntryDate}</td>
                             <td class="px-4 py-4 whitespace-normal max-w-xs break-words">
                                 ${patient.comments || ''}
                                 <small class="standby-reason text-amber-700 font-semibold mt-1">
