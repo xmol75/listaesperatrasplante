@@ -49,6 +49,14 @@
                     <label for="password" class="text-sm font-medium text-gray-700">Contraseña</label>
                     <input id="password" name="password" type="password" required class="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
+                <div id="password-rules" class="hidden text-xs text-gray-500 space-y-1">
+                    <p class="font-semibold">La contraseña debe contener:</p>
+                    <ul class="list-disc list-inside pl-2">
+                        <li>Al menos 8 caracteres</li>
+                        <li>Al menos un número (0-9)</li>
+                        <li>Al menos un carácter especial (!@#$...)</li>
+                    </ul>
+                </div>
                 <div class="flex items-center justify-between">
                     <button type="submit" id="login-btn" class="w-full px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         Entrar
@@ -68,9 +76,12 @@
     <!-- Main App Screen -->
     <div id="app-screen" class="hidden">
         <header class="bg-white shadow-md">
-            <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center flex-wrap">
                 <h1 class="text-2xl font-bold text-gray-900">Pacientes en lista de espera de trasplante hepático HUSE</h1>
-                <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-4 mt-2 sm:mt-0">
+                    <div class="text-sm text-gray-500">
+                        Última actualización: <span id="last-update-display" class="font-medium text-gray-700">cargando...</span>
+                    </div>
                     <div class="text-sm">
                         <span class="font-medium">Usuario:</span>
                         <span id="user-email-display" class="text-gray-600"></span>
@@ -103,10 +114,14 @@
                 <h3 class="text-xl font-semibold text-gray-900 mb-4" id="modal-title">Añadir Paciente</h3>
                 <form id="patient-form" class="space-y-4">
                     <input type="hidden" id="patient-id">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                             <label for="orderNumber" class="block text-sm font-medium text-gray-700">Nº Orden</label>
                             <input type="number" id="orderNumber" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="nhc" class="block text-sm font-medium text-gray-700">NHC</label>
+                            <input type="text" id="nhc" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500">
                         </div>
                         <div>
                             <label for="bloodGroup" class="block text-sm font-medium text-gray-700">Grupo</label>
@@ -266,8 +281,9 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // Referencia a la colección pública de pacientes
+        // Referencias a la base de datos
         const patientsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+        const lastUpdateRef = doc(db, 'artifacts', appId, 'public', 'data', 'metadata', 'lastUpdate');
 
         // --- ELEMENTOS DEL DOM ---
         const authScreen = document.getElementById('auth-screen');
@@ -278,6 +294,8 @@
         const userEmailDisplay = document.getElementById('user-email-display');
         const toggleAuthModeLink = document.getElementById('toggle-auth-mode-link');
         const forgotPasswordLink = document.getElementById('forgot-password-link');
+        const passwordRules = document.getElementById('password-rules');
+        const lastUpdateDisplay = document.getElementById('last-update-display');
         
         const patientModal = document.getElementById('patient-modal');
         const patientForm = document.getElementById('patient-form');
@@ -310,6 +328,7 @@
         let patientToActivateId = null;
         let isRegistering = false;
         let unsubscribeFromPatients = null;
+        let unsubscribeFromLastUpdate = null;
 
         // --- LÓGICA DE AUTENTICACIÓN Y ARRANQUE ---
         onAuthStateChanged(auth, (user) => {
@@ -318,14 +337,17 @@
                 authScreen.classList.add('hidden');
                 appScreen.classList.remove('hidden');
                 userEmailDisplay.textContent = user.email;
-                if (unsubscribeFromPatients) unsubscribeFromPatients(); // Detener listener anterior si existe
+                if (unsubscribeFromPatients) unsubscribeFromPatients();
+                if (unsubscribeFromLastUpdate) unsubscribeFromLastUpdate();
                 listenToPatients();
+                listenToLastUpdate();
             } else {
                 // El usuario no ha iniciado sesión
                 authScreen.classList.remove('hidden');
                 appScreen.classList.add('hidden');
-                if (unsubscribeFromPatients) unsubscribeFromPatients(); // Detener listener al cerrar sesión
-                document.getElementById('patient-lists').innerHTML = ''; // Limpiar lista
+                if (unsubscribeFromPatients) unsubscribeFromPatients();
+                if (unsubscribeFromLastUpdate) unsubscribeFromLastUpdate();
+                document.getElementById('patient-lists').innerHTML = '';
             }
         });
 
@@ -360,7 +382,7 @@
                     if (passwordError) {
                         authError.textContent = passwordError;
                         authError.classList.remove('hidden');
-                        return; // Detiene el proceso si la contraseña no es válida
+                        return;
                     }
                     await createUserWithEmailAndPassword(auth, email, password);
                 } else {
@@ -385,11 +407,13 @@
                 loginBtn.textContent = 'Registrar';
                 promptText.textContent = '¿Ya tienes cuenta?';
                 toggleAuthModeLink.textContent = 'Inicia sesión';
+                passwordRules.classList.remove('hidden');
             } else {
                 authTitle.textContent = 'Iniciar Sesión';
                 loginBtn.textContent = 'Entrar';
                 promptText.textContent = '¿No tienes cuenta?';
                 toggleAuthModeLink.textContent = 'Regístrate';
+                passwordRules.classList.add('hidden');
             }
         });
 
@@ -430,6 +454,32 @@
 
         // --- LÓGICA DE LA APLICACIÓN ---
 
+        async function updateTimestamp() {
+            try {
+                await setDoc(lastUpdateRef, { timestamp: serverTimestamp() });
+            } catch (error) {
+                console.error("Error updating timestamp:", error);
+            }
+        }
+
+        function listenToLastUpdate() {
+            unsubscribeFromLastUpdate = onSnapshot(lastUpdateRef, (docSnap) => {
+                if (docSnap.exists() && docSnap.data().timestamp) {
+                    const date = docSnap.data().timestamp.toDate();
+                    const formattedDate = new Intl.DateTimeFormat('es-ES', {
+                        dateStyle: 'short',
+                        timeStyle: 'short'
+                    }).format(date);
+                    lastUpdateDisplay.textContent = formattedDate;
+                } else {
+                    lastUpdateDisplay.textContent = 'Nunca';
+                }
+            }, (error) => {
+                console.error("Error listening to timestamp:", error);
+                lastUpdateDisplay.textContent = 'Error';
+            });
+        }
+
         function listenToPatients() {
             const q = query(patientsCollectionRef);
             unsubscribeFromPatients = onSnapshot(q, (snapshot) => {
@@ -461,6 +511,7 @@
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Orden</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NHC</th>
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rh</th>
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MELD</th>
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Talla/Peso/IMC</th>
@@ -477,7 +528,7 @@
 
                 const tableBody = document.getElementById(`table-body-${group}`);
                 if (groupPatients.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-gray-500">No hay pacientes en este grupo.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">No hay pacientes en este grupo.</td></tr>`;
                 } else {
                     groupPatients.forEach(patient => {
                         const imcDisplay = patient.imc ? parseFloat(patient.imc).toFixed(2) : 'N/A';
@@ -487,6 +538,7 @@
 
                         row.innerHTML = `
                             <td class="px-4 py-4 whitespace-nowrap font-bold">${patient.orderNumber}</td>
+                            <td class="px-4 py-4 whitespace-nowrap">${patient.nhc || ''}</td>
                             <td class="px-4 py-4 whitespace-nowrap">${patient.rh}</td>
                             <td class="px-4 py-4 whitespace-nowrap">${patient.meld}</td>
                             <td class="px-4 py-4 whitespace-nowrap">${patient.height}cm / ${patient.weight}kg / ${imcDisplay}</td>
@@ -547,6 +599,7 @@
             const id = document.getElementById('patient-id').value;
             const patientData = {
                 orderNumber: parseInt(document.getElementById('orderNumber').value, 10),
+                nhc: document.getElementById('nhc').value,
                 bloodGroup: document.getElementById('bloodGroup').value,
                 rh: document.getElementById('rh').value,
                 meld: parseInt(document.getElementById('meld').value, 10),
@@ -567,6 +620,7 @@
                     patientData.standbyReason = '';
                     await addDoc(patientsCollectionRef, patientData);
                 }
+                await updateTimestamp();
                 patientModal.classList.add('hidden');
             } catch (error) {
                 console.error("Error guardando paciente: ", error);
@@ -581,6 +635,7 @@
                     const data = patientSnap.data();
                     document.getElementById('patient-id').value = id;
                     document.getElementById('orderNumber').value = data.orderNumber;
+                    document.getElementById('nhc').value = data.nhc || '';
                     document.getElementById('bloodGroup').value = data.bloodGroup;
                     document.getElementById('rh').value = data.rh;
                     document.getElementById('meld').value = data.meld;
@@ -627,6 +682,7 @@
                 try {
                     const patientRef = doc(db, 'artifacts', appId, 'public', 'data', 'patients', patientToDeleteId);
                     await deleteDoc(patientRef);
+                    await updateTimestamp();
                     deleteModal.classList.add('hidden');
                     patientToDeleteId = null;
                 } catch (error) {
@@ -653,6 +709,7 @@
                 try {
                     const patientRef = doc(db, 'artifacts', appId, 'public', 'data', 'patients', id);
                     await setDoc(patientRef, { isStandby: true, standbyReason: reason }, { merge: true });
+                    await updateTimestamp();
                     standbyModal.classList.add('hidden');
                 } catch (error) {
                     console.error("Error al poner en standby:", error);
@@ -675,6 +732,7 @@
                  try {
                     const patientRef = doc(db, 'artifacts', appId, 'public', 'data', 'patients', patientToActivateId);
                     await setDoc(patientRef, { isStandby: false, standbyReason: "" }, { merge: true });
+                    await updateTimestamp();
                     activateModal.classList.add('hidden');
                     patientToActivateId = null;
                 } catch (error) {
