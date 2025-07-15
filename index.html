@@ -35,11 +35,47 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="flex items-center justify-center min-h-screen">
+        <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
+            <h2 id="auth-title" class="text-2xl font-bold text-center text-gray-900">Iniciar Sesión</h2>
+            <div id="auth-error" class="hidden p-3 text-sm text-red-700 bg-red-100 rounded-lg"></div>
+            <form id="login-form" class="space-y-6">
+                <div>
+                    <label for="email" class="text-sm font-medium text-gray-700">Email</label>
+                    <input id="email" name="email" type="email" required class="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="password" class="text-sm font-medium text-gray-700">Contraseña</label>
+                    <input id="password" name="password" type="password" required class="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="flex items-center justify-between">
+                    <button type="submit" id="login-btn" class="w-full px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Entrar
+                    </button>
+                </div>
+            </form>
+             <p class="text-sm text-center text-gray-600">
+                <span id="auth-prompt-text">¿No tienes cuenta?</span>
+                <a href="#" id="toggle-auth-mode-link" class="font-medium text-indigo-600 hover:text-indigo-500">Regístrate</a>
+            </p>
+        </div>
+    </div>
+
     <!-- Main App Screen -->
-    <div id="app-screen">
+    <div id="app-screen" class="hidden">
         <header class="bg-white shadow-md">
             <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
                 <h1 class="text-2xl font-bold text-gray-900">Pacientes en lista de espera de trasplante hepático HUSE</h1>
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm">
+                        <span class="font-medium">Usuario:</span>
+                        <span id="user-email-display" class="text-gray-600"></span>
+                    </div>
+                    <button id="logout-btn" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Salir
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -166,13 +202,14 @@
 
     <script type="module">
         // Importa las funciones necesarias de los SDK de Firebase
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
         import { 
             getAuth, 
-            signInAnonymously, 
             onAuthStateChanged,
-            signInWithCustomToken
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut
+        } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
         import { 
             getFirestore, 
             collection, 
@@ -184,24 +221,21 @@
             onSnapshot, 
             query,
             serverTimestamp
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
         // --- CONFIGURACIÓN DE FIREBASE ---
-        // Esta lógica detecta si el código se ejecuta en el entorno de vista previa o en un sitio externo.
-        const firebaseConfig = typeof __firebase_config !== 'undefined'
-            ? JSON.parse(__firebase_config)
-            : {
-                // IMPORTANTE: Si alojas esto en tu propio sitio (ej. GitHub Pages),
-                // reemplaza los siguientes valores con los de tu proyecto de Firebase.
-                apiKey: "TU_API_KEY",
-                authDomain: "TU_AUTH_DOMAIN",
-                projectId: "TU_PROJECT_ID",
-                storageBucket: "TU_STORAGE_BUCKET",
-                messagingSenderId: "TU_MESSAGING_SENDER_ID",
-                appId: "TU_APP_ID"
-            };
+        // Claves del proyecto de Firebase insertadas.
+        const firebaseConfig = {
+            apiKey: "AIzaSyCaFG458QVP5ek9T8w-qqiVzPKF6kz8GXU",
+            authDomain: "lista-espera-trasplante-huse.firebaseapp.com",
+            projectId: "lista-espera-trasplante-huse",
+            storageBucket: "lista-espera-trasplante-huse.appspot.com",
+            messagingSenderId: "1062820017422",
+            appId: "1:1062820017422:web:4f409fde7e10be6349d35f",
+            measurementId: "G-S59YXTR63M"
+        };
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'lista-espera-higado-huse';
+        const appId = "lista-espera-higado-huse";
 
         // Inicializa Firebase
         const app = initializeApp(firebaseConfig);
@@ -212,6 +246,14 @@
         const patientsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
 
         // --- ELEMENTOS DEL DOM ---
+        const authScreen = document.getElementById('auth-screen');
+        const appScreen = document.getElementById('app-screen');
+        const loginForm = document.getElementById('login-form');
+        const authError = document.getElementById('auth-error');
+        const logoutBtn = document.getElementById('logout-btn');
+        const userEmailDisplay = document.getElementById('user-email-display');
+        const toggleAuthModeLink = document.getElementById('toggle-auth-mode-link');
+        
         const patientModal = document.getElementById('patient-modal');
         const patientForm = document.getElementById('patient-form');
         const addPatientBtn = document.getElementById('add-patient-btn');
@@ -235,43 +277,76 @@
         
         let patientToDeleteId = null;
         let patientToActivateId = null;
-        let isAppInitialized = false;
+        let isRegistering = false;
+        let unsubscribeFromPatients = null;
 
         // --- LÓGICA DE AUTENTICACIÓN Y ARRANQUE ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                // El usuario está autenticado
-                if (!isAppInitialized) {
-                    console.log("Usuario autenticado, inicializando la app...");
-                    listenToPatients();
-                    isAppInitialized = true;
-                }
+                // El usuario ha iniciado sesión
+                authScreen.classList.add('hidden');
+                appScreen.classList.remove('hidden');
+                userEmailDisplay.textContent = user.email;
+                if (unsubscribeFromPatients) unsubscribeFromPatients(); // Detener listener anterior si existe
+                listenToPatients();
             } else {
-                // No hay usuario, intentar autenticación
-                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                if (token) {
-                    // Priorizar token de autenticación si existe (entorno de vista previa)
-                    signInWithCustomToken(auth, token).catch((error) => {
-                        console.error("Error con el token de autenticación, intentando de forma anónima:", error);
-                        signInAnonymously(auth).catch(err => {
-                             console.error("Error en el inicio de sesión anónimo:", err);
-                        });
-                    });
-                } else {
-                    // Si no hay token, usar autenticación anónima (para GitHub Pages, etc.)
-                    signInAnonymously(auth).catch((error) => {
-                        console.error("Error en el inicio de sesión anónimo:", error);
-                    });
-                }
+                // El usuario no ha iniciado sesión
+                authScreen.classList.remove('hidden');
+                appScreen.classList.add('hidden');
+                if (unsubscribeFromPatients) unsubscribeFromPatients(); // Detener listener al cerrar sesión
+                document.getElementById('patient-lists').innerHTML = ''; // Limpiar lista
             }
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = loginForm.email.value;
+            const password = loginForm.password.value;
+            
+            authError.classList.add('hidden');
+
+            try {
+                if (isRegistering) {
+                    await createUserWithEmailAndPassword(auth, email, password);
+                } else {
+                    await signInWithEmailAndPassword(auth, email, password);
+                }
+            } catch (error) {
+                authError.textContent = error.message;
+                authError.classList.remove('hidden');
+                console.error("Auth error:", error);
+            }
+        });
+
+        toggleAuthModeLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            isRegistering = !isRegistering;
+            const authTitle = document.getElementById('auth-title');
+            const loginBtn = document.getElementById('login-btn');
+            const promptText = document.getElementById('auth-prompt-text');
+
+            if (isRegistering) {
+                authTitle.textContent = 'Crear Cuenta';
+                loginBtn.textContent = 'Registrar';
+                promptText.textContent = '¿Ya tienes cuenta?';
+                toggleAuthModeLink.textContent = 'Inicia sesión';
+            } else {
+                authTitle.textContent = 'Iniciar Sesión';
+                loginBtn.textContent = 'Entrar';
+                promptText.textContent = '¿No tienes cuenta?';
+                toggleAuthModeLink.textContent = 'Regístrate';
+            }
+        });
+
+        logoutBtn.addEventListener('click', () => {
+            signOut(auth);
         });
 
         // --- LÓGICA DE LA APLICACIÓN ---
 
-        // Escucha cambios en la colección de pacientes en tiempo real
         function listenToPatients() {
             const q = query(patientsCollectionRef);
-            onSnapshot(q, (snapshot) => {
+            unsubscribeFromPatients = onSnapshot(q, (snapshot) => {
                 const patients = [];
                 snapshot.forEach((doc) => {
                     patients.push({ id: doc.id, ...doc.data() });
@@ -282,7 +357,9 @@
             });
         }
 
-        // Renderiza la lista de pacientes, agrupados por grupo sanguíneo
+        // El resto de la lógica de la aplicación (renderPatients, handleEdit, etc.)
+        // permanece igual.
+        
         function renderPatients(patients) {
             const listsContainer = document.getElementById('patient-lists');
             listsContainer.innerHTML = '';
@@ -309,9 +386,7 @@
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200" id="table-body-${group}">
-                                <!-- Patient rows will be inserted here -->
-                            </tbody>
+                            <tbody class="bg-white divide-y divide-gray-200" id="table-body-${group}"></tbody>
                         </table>
                     </div>
                 `;
@@ -354,8 +429,6 @@
                     });
                 }
             });
-
-            // Attach event listeners after rendering
             attachActionListeners();
         }
         
@@ -374,7 +447,6 @@
             });
         }
 
-        // --- MANEJO DEL MODAL DE PACIENTE (AÑADIR/EDITAR) ---
         addPatientBtn.addEventListener('click', () => {
             patientForm.reset();
             patientForm.querySelector('#patient-id').value = '';
@@ -443,7 +515,6 @@
             }
         }
 
-        // --- CÁLCULO AUTOMÁTICO DE IMC ---
         function calculateIMC() {
             const height = parseFloat(heightInput.value);
             const weight = parseFloat(weightInput.value);
@@ -458,7 +529,6 @@
         heightInput.addEventListener('input', calculateIMC);
         weightInput.addEventListener('input', calculateIMC);
 
-        // --- MANEJO DE ELIMINACIÓN ---
         function handleDelete(id) {
             patientToDeleteId = id;
             deleteModal.classList.remove('hidden');
@@ -482,7 +552,6 @@
             }
         });
 
-        // --- MANEJO DE STANDBY ---
         function handleStandby(id) {
             document.getElementById('standby-patient-id').value = id;
             standbyForm.reset();
@@ -508,7 +577,6 @@
             }
         });
 
-        // --- MANEJO DE ACTIVACIÓN ---
         function handleActivate(id) {
             patientToActivateId = id;
             activateModal.classList.remove('hidden');
