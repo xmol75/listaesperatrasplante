@@ -47,7 +47,12 @@
                 </div>
                 <div>
                     <label for="password" class="text-sm font-medium text-gray-700">Contraseña</label>
-                    <input id="password" name="password" type="password" required class="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <div class="relative">
+                        <input id="password" name="password" type="password" required class="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 pr-10">
+                        <button type="button" id="toggle-password-visibility" class="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-eye" id="password-eye-icon"></i>
+                        </button>
+                    </div>
                 </div>
                 <div id="password-rules" class="hidden text-xs text-gray-500 space-y-1">
                     <p class="font-semibold">La contraseña debe contener:</p>
@@ -298,6 +303,9 @@
         const passwordRules = document.getElementById('password-rules');
         const lastUpdateContainer = document.getElementById('last-update-container');
         const lastUpdateDisplay = document.getElementById('last-update-display');
+        const passwordInput = document.getElementById('password');
+        const togglePasswordVisibility = document.getElementById('toggle-password-visibility');
+        const passwordEyeIcon = document.getElementById('password-eye-icon');
         
         const patientModal = document.getElementById('patient-modal');
         const patientForm = document.getElementById('patient-form');
@@ -393,7 +401,7 @@
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = loginForm.email.value;
-            const password = loginForm.password.value;
+            const password = passwordInput.value;
             
             authMessage.classList.add('hidden');
 
@@ -451,6 +459,13 @@
 
         logoutBtn.addEventListener('click', () => {
             signOut(auth);
+        });
+
+        togglePasswordVisibility.addEventListener('click', () => {
+            const isPassword = passwordInput.type === 'password';
+            passwordInput.type = isPassword ? 'text' : 'password';
+            passwordEyeIcon.classList.toggle('fa-eye', !isPassword);
+            passwordEyeIcon.classList.toggle('fa-eye-slash', isPassword);
         });
 
         // --- LÓGICA DE RECUPERACIÓN DE CONTRASEÑA ---
