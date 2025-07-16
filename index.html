@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .modal-backdrop {
@@ -100,7 +101,10 @@
 
         <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
             <div class="px-4 py-6 sm:px-0">
-                <div class="flex justify-end mb-4">
+                <div class="flex justify-end mb-4 space-x-3">
+                    <button id="export-excel-btn" class="px-6 py-2 font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-lg">
+                        <i class="fas fa-file-excel mr-2"></i>Exportar a Excel
+                    </button>
                     <button id="add-patient-btn" class="px-6 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 shadow-lg">
                         <i class="fas fa-plus mr-2"></i>Añadir Paciente
                     </button>
@@ -310,6 +314,7 @@
         const patientModal = document.getElementById('patient-modal');
         const patientForm = document.getElementById('patient-form');
         const addPatientBtn = document.getElementById('add-patient-btn');
+        const exportExcelBtn = document.getElementById('export-excel-btn');
         const cancelBtn = document.getElementById('cancel-btn');
         
         const standbyModal = document.getElementById('standby-modal');
@@ -339,6 +344,7 @@
         let isRegistering = false;
         let unsubscribeFromPatients = null;
         let unsubscribeFromLastUpdate = null;
+        let allPatients = [];
         
         function showAuthMessage(message, isError = true) {
             authMessage.textContent = message;
@@ -532,11 +538,11 @@
         function listenToPatients() {
             const q = query(patientsCollectionRef);
             unsubscribeFromPatients = onSnapshot(q, (snapshot) => {
-                const patients = [];
+                allPatients = [];
                 snapshot.forEach((doc) => {
-                    patients.push({ id: doc.id, ...doc.data() });
+                    allPatients.push({ id: doc.id, ...doc.data() });
                 });
-                renderPatients(patients);
+                renderPatients(allPatients);
             }, (error) => {
                 console.error("Error al obtener pacientes:", error);
             });
@@ -650,6 +656,60 @@
             document.getElementById('modal-title').textContent = 'Añadir Paciente';
             document.getElementById('entryDate').valueAsDate = new Date();
             patientModal.classList.remove('hidden');
+        });
+        
+        exportExcelBtn.addEventListener('click', () => {
+            if (allPatients.length === 0) {
+                alert("No hay pacientes para exportar.");
+                return;
+            }
+
+            const headers = [
+                'Nº Orden', 'NHC', 'Grupo', 'Rh', 'MELD', 'Talla (cm)', 'Peso (kg)', 'IMC', 'Fecha de Entrada', 'Estado', 'Razón Standby', 'Comentarios'
+            ];
+            
+            const dataToExport = allPatients.map(p => ([
+                p.orderNumber,
+                p.nhc,
+                p.bloodGroup,
+                p.rh,
+                p.meld,
+                p.height,
+                p.weight,
+                p.imc ? parseFloat(p.imc).toFixed(2) : '',
+                p.entryDate ? new Date(p.entryDate).toLocaleDateString('es-ES') : '',
+                p.isStandby ? 'Standby' : 'Activo',
+                p.isStandby ? p.standbyReason : '',
+                p.comments
+            ]));
+
+            const exportData = [headers, ...dataToExport];
+            const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+
+            const headerStyle = {
+                font: { bold: true, color: { rgb: "FFFFFF" } },
+                fill: { fgColor: { rgb: "4F46E5" } },
+                alignment: { horizontal: "center", vertical: "center" }
+            };
+            
+            const headerRange = XLSX.utils.decode_range(worksheet['!ref']);
+            for (let C = headerRange.s.c; C <= headerRange.e.c; ++C) {
+                const address = XLSX.utils.encode_cell({ c: C, r: 0 });
+                if (!worksheet[address]) continue;
+                worksheet[address].s = headerStyle;
+            }
+
+            const colWidths = headers.map((_, i) => ({
+                wch: Math.max(
+                    headers[i].length,
+                    ...exportData.slice(1).map(row => row[i] ? row[i].toString().length : 0)
+                ) + 2
+            }));
+            worksheet['!cols'] = colWidths;
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Lista de Espera");
+            XLSX.writeFile(workbook, "ListaEsperaTrasplantes.xlsx");
         });
 
         cancelBtn.addEventListener('click', () => {
